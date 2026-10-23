@@ -18,9 +18,23 @@ class Result {
   final Map<String, int> votes;
   final Map<String, BT> bt;
   final List<Candle> candles;
-  Result(this.pair, this.tf, this.score, this.votes, this.bt, this.candles);
+  final double atr;
+  Result(this.pair, this.tf, this.score, this.votes, this.bt, this.candles, this.atr);
   String get signal => score >= 40 ? 'BUY' : (score <= -40 ? 'SELL' : 'WAIT');
   double get price => candles.last.c;
+  int get dir => score > 0 ? 1 : -1;
+  int get agree => votes.values.where((v) => v != 0 && v == dir).length;
+  double get sl => price - dir * 1.5 * atr;
+  double get tp => price + dir * 3 * atr;
+  List<String> get why {
+    final w = <String>[];
+    if (signal == 'WAIT') w.add('Score 40% se kam, strategies agree nahi');
+    if (agree < 3) w.add('Kam az kam 3 strategies agree honi chahiye (abhi $agree)');
+    if (conf < 52) w.add('Backtest win-rate ${conf.toStringAsFixed(0)}% (52% se kam)');
+    if (atr / price < 0.0004) w.add('Market bohot slow hai (volatility kam)');
+    return w;
+  }
+  bool get ok => why.isEmpty;
   double get conf {
     final a = votes.entries.where((e) => e.value != 0 && (e.value > 0) == (score > 0)).toList();
     if (a.isEmpty) return 0;
@@ -192,5 +206,15 @@ Result analyze(String pair, String tf, List<Candle> cs) {
   var s = 0;
   for (final k in use) { s += v[k]!; }
   final sc = (100 * s / min(use.length, 4)).clamp(-100.0, 100.0).toDouble();
-  return Result(pair, tf, sc, v, bt, cs);
+  return Result(pair, tf, sc, v, bt, cs, atrLast(cs));
+}
+
+double atrLast(List<Candle> cs) {
+  double a = 0;
+  final n = cs.length;
+  for (var i = n - 14; i < n; i++) {
+    final x = cs[i], b = cs[i - 1];
+    a += max(x.h - x.l, max((x.h - b.c).abs(), (x.l - b.c).abs()));
+  }
+  return a / 14;
 }
