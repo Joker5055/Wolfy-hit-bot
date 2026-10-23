@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'engine.dart';
+import 'pages.dart';
 
 void main() => runApp(const WolfApp());
 
 const pairs = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT'];
 const tfs = ['1m', '5m', '15m'];
+List<Result> latest = [];
 
 Future<List<Candle>> fetch(String s, String tf) async {
   for (final host in ['https://data-api.binance.vision', 'https://api.binance.com']) {
@@ -31,7 +33,7 @@ class WolfApp extends StatelessWidget {
         title: 'Wolfies Hit Bot',
         debugShowCheckedModeBanner: false,
         theme: ThemeData.dark(useMaterial3: true).copyWith(scaffoldBackgroundColor: const Color(0xFF0B0F14)),
-        home: const Home(),
+        home: const Shell(),
       );
 }
 
@@ -46,6 +48,7 @@ class _HomeState extends State<Home> {
   bool loading = false;
   int sel = 0;
   String updated = '-';
+  double cap = 100;
   Timer? t;
   WebSocketChannel? ch;
   StreamSubscription? sub;
@@ -68,9 +71,10 @@ class _HomeState extends State<Home> {
     await Future.wait([
       for (final p in pairs)
         for (final tf in tfs)
-          fetch(p, tf).then((cs) => out.add(analyze(p, tf, cs))).catchError((_) {}),
+          fetch(p, tf).then<void>((cs) { out.add(analyze(p, tf, cs)); }).catchError((_) {}),
     ]);
     out.sort((x, y) => y.score.abs().compareTo(x.score.abs()));
+    latest = out;
     if (!mounted) return;
     final n = DateTime.now();
     setState(() {
@@ -130,6 +134,19 @@ class _HomeState extends State<Home> {
                     const SizedBox(height: 4),
                     const Text('Blue=EMA9, Orange=EMA21', style: TextStyle(fontSize: 10, color: Colors.grey)),
                     const Divider(),
+                    SizedBox(width: 170, child: TextField(decoration: const InputDecoration(labelText: 'Capital (USDT)', isDense: true), keyboardType: TextInputType.number, onChanged: (s) => setState(() => cap = double.tryParse(s) ?? cap))),
+                    const SizedBox(height: 6),
+                    Text(top.ok ? (top.dir > 0 ? '✅ TRADE LO: BUY (LONG)' : '✅ TRADE LO: SELL (SHORT)') : '⛔ ABHI TRADE MAT LO',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: top.ok ? col(top.signal) : Colors.orangeAccent)),
+                    if (!top.ok) for (final w in top.why) Text('• $w', style: const TextStyle(fontSize: 12, color: Colors.orangeAccent)),
+                    if (top.ok) ...[
+                      Text('Entry: ${top.price.toStringAsFixed(4)}'),
+                      Text('Stop-loss: ${top.sl.toStringAsFixed(4)}', style: const TextStyle(color: Colors.redAccent)),
+                      Text('Target: ${top.tp.toStringAsFixed(4)} (RR 1:2)', style: const TextStyle(color: Colors.greenAccent)),
+                      Text('Exit: SL ya Target jo pehle lage. 6 candles (${top.tf}) me kuch na ho to band kar do.'),
+                      Text('1% risk par size: ${min(cap, cap * 0.01 * top.price / (top.price - top.sl).abs()).toStringAsFixed(2)} USDT'),
+                    ],
+                    const Divider(),
                     const Text('Strategy | signal | backtest win-rate | trades', style: TextStyle(fontSize: 11, color: Colors.grey)),
                     for (final e in top.votes.entries)
                       Padding(
@@ -158,7 +175,7 @@ class _HomeState extends State<Home> {
                 ),
               const Padding(
                 padding: EdgeInsets.all(8),
-                child: Text('Backtest purane data ka hai (next candle result), future ki guarantee nahi. Fees/slippage shamil nahi. Pehle demo/testnet par test karein.',
+                child: Text('Rules: ek trade me max 1% risk, din me 3% loss ya 3 loss ke baad band, SL kabhi mat hatao. Spot me SELL sirf exit hai, short futures me hota hai. Backtest purane data ka hai (next candle result), future ki guarantee nahi. Fees/slippage shamil nahi. Pehle demo/testnet par test karein.',
                     style: TextStyle(color: Colors.grey, fontSize: 11)),
               ),
             ]),
